@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.streamlit/secrets.toml
+
+# Corrected copies saved by the review tool, and DataVolley backups
+*_rev.dvw
+*.dvw.bak

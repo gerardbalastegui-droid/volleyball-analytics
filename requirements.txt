@@ -1,0 +1,5 @@
+streamlit>=1.40
+pandas>=2.2
+matplotlib>=3.8
+openvolley-pydatavolley>=1.0
+xhtml2pdf>=0.2.16

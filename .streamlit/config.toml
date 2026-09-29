@@ -1,0 +1,6 @@
+# The report tables are custom HTML designed on a light background.
+[theme]
+base = "light"
+
+[browser]
+gatherUsageStats = false
