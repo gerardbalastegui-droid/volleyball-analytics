@@ -2,6 +2,10 @@
 
 ![tests](https://github.com/gerardbalastegui-droid/volleyball-analytics/actions/workflows/tests.yml/badge.svg)
 
+**[Try the live demo →](https://volleyball-analytics-demo.streamlit.app)**
+Press *Load all 14 matches* and explore. If the app has been asleep, the first
+load takes about half a minute.
+
 **Two Streamlit tools that turn DataVolley scouting files into reports a
 volleyball team can use, and catch scouting errors before they reach the
 numbers.** I built them for the teams I coach and scout, and I use them after
