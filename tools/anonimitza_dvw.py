@@ -2,6 +2,12 @@
 """Anonimitza una carpeta de .dvw perquè es puguin publicar.
 
     python tools/anonimitza_dvw.py <carpeta_origen> <carpeta_desti>
+        [--equip "Demo VC"] [--codi DVC] [--prefix ""] [--noms otan|grec|planetes]
+
+Una carpeta per equip: l'equip comú a tots els arxius és el que s'anonimitza
+amb --equip. Per anonimitzar diversos equips sense que els noms es trepitgin,
+cada un amb el seu --prefix (rivals "Rival WA", "Rival WB"...) i la seva
+llista de pseudònims.
 
 Els .dvw de Partits/ d'aquest repositori han passat per aquí. Només es toquen
 les capçaleres: les jugades ([3SCOUT]) no porten noms, només codis, hores i
@@ -29,6 +35,7 @@ Si en surt un, l'script falla sense escriure res.
 La taula d'equivalències no es desa enlloc: amb aquest script i els arxius
 publicats no es pot tornar enrere.
 """
+import argparse
 import datetime
 import os
 import re
@@ -39,10 +46,20 @@ ANYS = 3                      # el que es resta a l'etiqueta de temporada
 EQUIP_DEMO = "Demo VC"
 CODI_DEMO = "DVC"
 LLIGA = "Demo League"
-OTAN = ["Alfa", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot", "Golf",
-        "Hotel", "India", "Juliett", "Kilo", "Lima", "Mike", "November",
-        "Oscar", "Papa", "Quebec", "Romeo", "Sierra", "Tango", "Uniform",
-        "Victor", "Whiskey", "Xray", "Yankee", "Zulu"]
+LLISTES = {
+    "otan": ["Alfa", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot", "Golf",
+             "Hotel", "India", "Juliett", "Kilo", "Lima", "Mike", "November",
+             "Oscar", "Papa", "Quebec", "Romeo", "Sierra", "Tango", "Uniform",
+             "Victor", "Whiskey", "Xray", "Yankee", "Zulu"],
+    # Sense "Delta", que ja és a la llista OTAN.
+    "grec": ["Alpha", "Beta", "Gamma", "Epsilon", "Zeta", "Eta", "Theta",
+             "Iota", "Kappa", "Lambda", "Mu", "Nu", "Xi", "Omicron", "Pi",
+             "Rho", "Sigma", "Tau", "Upsilon", "Phi", "Chi", "Psi", "Omega"],
+    "planetes": ["Mercury", "Venus", "Earth", "Mars", "Jupiter", "Saturn",
+                 "Uranus", "Neptune", "Pluto", "Ceres", "Eris", "Io",
+                 "Europa", "Ganymede", "Callisto", "Titan", "Triton",
+                 "Oberon", "Miranda", "Phobos", "Deimos", "Charon"],
+}
 
 MIRALL = "\x0f"
 EXCEL_0 = datetime.date(1899, 12, 30)
@@ -107,18 +124,19 @@ def jugadors(sec, idx_equip):
 # Equivalències
 # ---------------------------------------------------------------------------
 
-def equivalencies(arxius):
+def equivalencies(arxius, equip=EQUIP_DEMO, codi=CODI_DEMO, prefix="", llista="otan"):
     noms_equips = [equips(sec) for _, sec in arxius]
     comuns = set(noms_equips[0]).intersection(*map(set, noms_equips[1:]))
     if len(comuns) != 1:
         sys.exit(f"cal exactament un equip comú a tots els arxius, n'hi ha {len(comuns)}")
     comu = comuns.pop()
+    noms = LLISTES[llista]
 
     rivals = sorted({n for ns in noms_equips for n in ns if n != comu})
     if len(rivals) > 26:
         sys.exit("massa rivals per a les lletres A-Z")
-    lletra = {r: chr(ord("A") + i) for i, r in enumerate(rivals)}
-    eq = {comu: (EQUIP_DEMO, CODI_DEMO)}
+    lletra = {r: prefix + chr(ord("A") + i) for i, r in enumerate(rivals)}
+    eq = {comu: (equip, codi)}
     eq.update({r: (f"Rival {lletra[r]}", f"RV{lletra[r]}") for r in rivals})
 
     # Jugadors: per equip, ordenats pel primer dorsal amb què surten.
@@ -126,6 +144,12 @@ def equivalencies(arxius):
     for (_, sec), ns in zip(arxius, noms_equips):
         for i, equip in enumerate(ns):
             for dorsal, cognom, nom in jugadors(sec, i):
+                # Sense nom a l'original (plantilla del rival amb només
+                # dorsals): no rep pseudònim. Si en rebés, tots els jugadors
+                # sense nom compartirien la mateixa clau buida i quedarien
+                # fusionats en un de sol.
+                if not cognom.strip() and not nom.strip():
+                    continue
                 clau = (equip, cognom, nom)
                 vistos[clau] = min(vistos.get(clau, dorsal), dorsal)
     jug = {}
@@ -134,9 +158,9 @@ def equivalencies(arxius):
                        key=lambda k: (vistos[k], k[1], k[2]))
         for n, k in enumerate(claus):
             if equip == comu:
-                if n >= len(OTAN):
-                    sys.exit("massa jugadors a l'equip comú per a l'alfabet OTAN")
-                jug[k] = (OTAN[n], f"P{n + 1:02d}")
+                if n >= len(noms):
+                    sys.exit(f"massa jugadors a l'equip comú per a la llista '{llista}'")
+                jug[k] = (noms[n], f"P{n + 1:02d}")
             else:
                 l = lletra[equip]
                 jug[k] = (f"Opp {l}{n + 1:02d}", f"{l}{n + 1:02d}")
@@ -227,6 +251,13 @@ def anonimitza(sec, eq, jug, sensibles):
             c, s = _camps(sec[nom_sec][i])
             if len(c) <= 10 or not c[1].strip():
                 continue
+            if not c[9].strip() and not c[10].strip():
+                # Sense nom: es queda sense, i només es neteja el que en pugui
+                # quedar (codi i sobrenom).
+                sensibles.update(v for v in (c[8], c[11]) if len(v) > 2)
+                c[8], c[11] = "", ""
+                sec[nom_sec][i] = _junta(c, s)
+                continue
             pseudonim, codi = jug[(noms[idx], c[9], c[10])]
             sensibles.update(v for v in (c[8], c[9], c[10], c[11]) if len(v) > 2)
             c[8], c[9], c[10], c[11] = codi, pseudonim, "", ""
@@ -237,17 +268,17 @@ def anonimitza(sec, eq, jug, sensibles):
             sec[nom_sec][i] = _junta(c, s)
 
 
-def nom_arxiu(rival, n):
-    return f"{EQUIP_DEMO} vs {rival}{'' if n == 1 else f' {n}'}.dvw"
+def nom_arxiu(equip, rival, n):
+    return f"{equip} vs {rival}{'' if n == 1 else f' {n}'}.dvw"
 
 
-def main(origen, desti):
+def main(origen, desti, equip=EQUIP_DEMO, codi=CODI_DEMO, prefix="", llista="otan"):
     camins = sorted(os.path.join(a, n) for a, _, ns in os.walk(origen)
                     for n in ns if n.lower().endswith(".dvw"))
     if not camins:
         sys.exit(f"no hi ha cap .dvw a {origen}")
     arxius = [(c, seccions(llegeix(c))) for c in camins]
-    comu, eq, jug = equivalencies(arxius)
+    comu, eq, jug = equivalencies(arxius, equip, codi, prefix, llista)
 
     # El nom nou porta el rival i, si s'hi ha jugat més d'un cop, l'ordinal
     # cronològic. Sense data al davant, a propòsit: l'ordre alfabètic no ha
@@ -259,7 +290,7 @@ def main(origen, desti):
     for cami, sec in ordre:
         rival = eq[[n for n in equips(sec) if n != comu][0]][0]
         comptador[rival] = comptador.get(rival, 0) + 1
-        noms_nous[cami] = nom_arxiu(rival, comptador[rival])
+        noms_nous[cami] = nom_arxiu(equip, rival, comptador[rival])
 
     sensibles = set()
     sortida = {}
@@ -268,11 +299,23 @@ def main(origen, desti):
         sortida[noms_nous[cami]] = "".join("".join(ls) for ls in sec.values())
 
     # Comprovació final: cap valor original, ni en text ni com a mirall.
+    # Els camps que són exactament un valor generat aquí (pseudònims, equips,
+    # lliga i els seus miralls) no es miren: un nom original curt pot ser
+    # dins d'un d'ells per casualitat ("Lea" dins de "Demo League") sense
+    # que s'hagi filtrat res. Tota la resta es busca com a subcadena.
+    generats = {LLIGA} | {v for par in list(eq.values()) + list(jug.values()) for v in par}
+    generats |= {enc(g) for g in generats}
+
+    def sense_generats(text):
+        return "\n".join(";".join(c for c in l.split(";") if c.rstrip("\r") not in generats)
+                         for l in text.split("\n"))
+
     agulles = set()
     for v in sensibles:
         agulles.add(v)
         agulles.add(v.encode("cp1252", "replace").hex().upper())
-    trobats = [(nom, a) for nom, t in sortida.items() for a in agulles
+    revisar = {nom: sense_generats(t) for nom, t in sortida.items()}
+    trobats = [(nom, a) for nom, t in revisar.items() for a in agulles
                if len(a) > 2 and a in t]
     if trobats:
         sys.exit(f"queden {len(trobats)} valors originals als arxius nous: no s'escriu res")
@@ -289,6 +332,13 @@ def main(origen, desti):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        sys.exit(__doc__)
-    main(sys.argv[1], sys.argv[2])
+    p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    p.add_argument("origen")
+    p.add_argument("desti")
+    p.add_argument("--equip", default=EQUIP_DEMO, help="nom nou de l'equip comú")
+    p.add_argument("--codi", default=CODI_DEMO, help="codi nou de l'equip comú")
+    p.add_argument("--prefix", default="", help="prefix de les lletres dels rivals")
+    p.add_argument("--noms", default="otan", choices=sorted(LLISTES),
+                   help="llista de pseudònims per a l'equip comú")
+    a = p.parse_args()
+    main(a.origen, a.desti, a.equip, a.codi, a.prefix, a.noms)
